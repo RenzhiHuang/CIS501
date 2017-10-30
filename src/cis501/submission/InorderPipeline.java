@@ -32,9 +32,11 @@ public class InorderPipeline implements IInorderPipeline {
 	public int additionalMemLatency;
 	public Set<Bypass> bypasses;
 	public BranchPredictor bp;
+	public ICache ic;
+	public ICache dc;
 
 	private static Insn makeInsn(int dst, int src1, int src2, MemoryOp mop) {
-		return new Insn(dst, src1, src2, 1, 4, null, 0, null, mop, 1, 1, "synthetic");
+		return new Insn(dst, src1, src2, -2, 4, null, 0, null, mop, 1, 1, "synthetic");
 	}
 
 	/**
@@ -66,6 +68,12 @@ public class InorderPipeline implements IInorderPipeline {
 		this.bp = bp;
 	}
 
+	public InorderPipeline(BranchPredictor bp, ICache ic, ICache dc) {
+		this.ic = ic;
+		this.dc = dc;
+		this.bp = bp;
+	}
+
 	@Override
 	public String[] groupMembers() {
 		return new String[] { "Renzhi Huang", "Yuanlong Xiao" };
@@ -85,11 +93,29 @@ public class InorderPipeline implements IInorderPipeline {
 		Insn nop = makeInsn(-2, -2, -2, null);
 		CycleCount = 0;
 		int memtrue = 0;
+		int insnaccess=0;
+		int fetchlatency = 0;
+		int additionallatency = 0;
 
 		// declare an array to store the predicted target
 		long[] PreTar = new long[] { 0, 0, 0 };
 
 		while (true) {
+			
+            System.out.println(OnStageInsn[0]);
+            System.out.println(PreTar[0]);
+            System.out.println(insnaccess);
+            //System.out.println(bp.predict(OnStageInsn[0].pc, OnStageInsn[0].fallthroughPC()));
+
+            System.out.println(OnStageInsn[1]);
+            //System.out.println(PreTar[0]);
+
+            System.out.println(OnStageInsn[2]);
+            //System.out.println(PreTar[0]);
+
+            System.out.println(OnStageInsn[3]);
+            System.out.println(OnStageInsn[4]);
+            System.out.println("..................");
 
 			CycleCount++;
 			// get the predicted target for the instruction on Fetch
@@ -99,142 +125,198 @@ public class InorderPipeline implements IInorderPipeline {
 				PreTar[0] = 0;
 			}
 
-			// additional latency for mem instructions
-			if (((OnStageInsn[3].mem == MemoryOp.Load) || (OnStageInsn[3].mem == MemoryOp.Store))
-					&& memtrue != additionalMemLatency) {
-				memtrue++;
-				// if X is a nop
-				if (OnStageInsn[2].dstReg == -2) {
+			if ((OnStageInsn[3].mem == MemoryOp.Load) || (OnStageInsn[3].mem == MemoryOp.Store)) {
+				// use cache to get the additional latency
+				if(memtrue == 0) {
+				if (OnStageInsn[3].mem == MemoryOp.Load) {
+					additionallatency = dc.access(true, OnStageInsn[3].memAddress);
+				} else {
+					additionallatency = dc.access(false, OnStageInsn[3].memAddress);
+				}
+	            //System.out.println(additionallatency);
+				}
 
-					// if X&D are nops
-					if (OnStageInsn[1].dstReg == -2) {
-						OnStageInsn[1] = OnStageInsn[0];
-						PreTar[1] = PreTar[0];
-						if (iter.hasNext() == true) {
-							OnStageInsn[0] = iter.next();
-							InsnCount++;
-						} else {
-							OnStageInsn[0] = nop;
+				// addtional latency for mem insns
+				if (memtrue != additionallatency) {
+					memtrue++;
+					// if X is a nop
+					if (OnStageInsn[2].dstReg == -2) {
+
+						// if X&D are nops
+						if (OnStageInsn[1].dstReg == -2) {
+							// use insn cache to get the fetchlatency
+							if (OnStageInsn[0].pc != -2 && fetchlatency != insnaccess) {
+								fetchlatency++;
+								continue;
+							} else {
+								fetchlatency = 0;
+								OnStageInsn[1] = OnStageInsn[0];
+								PreTar[1] = PreTar[0];
+								if (iter.hasNext() == true) {
+									OnStageInsn[0] = iter.next();
+									InsnCount++;
+								} else {
+									OnStageInsn[0] = nop;
+								}
+								if (OnStageInsn[0].dstReg != -2) {
+									insnaccess = ic.access(true,OnStageInsn[0].pc);
+								} else {
+									insnaccess = 0;
+								}
+								continue;
+							}
+						}
+						// if D isn't a nop
+						if (OnStageInsn[1].dstReg != -2) {
+
+							// M&D load to use/ load to store
+
+							if (OnStageInsn[3].mem == MemoryOp.Load) {
+
+								if (OnStageInsn[1].mem == MemoryOp.Store
+										&& OnStageInsn[1].srcReg2 == OnStageInsn[3].dstReg) {
+									continue;
+								}
+
+								else if ((OnStageInsn[1].mem != MemoryOp.Store)
+										&& (OnStageInsn[1].srcReg2 == OnStageInsn[3].dstReg
+												|| OnStageInsn[1].srcReg1 == OnStageInsn[3].dstReg)) {
+									continue;
+								}
+
+							}
+							// no dependence
+							else {
+								OnStageInsn[2] = OnStageInsn[1];
+								PreTar[2] = PreTar[1];
+								if (OnStageInsn[0].pc != -2 && fetchlatency != insnaccess) {
+									OnStageInsn[1] = nop;
+									PreTar[1] = 0;
+									fetchlatency++;
+									continue;
+								} else {
+									fetchlatency = 0;
+									OnStageInsn[1] = OnStageInsn[0];
+									PreTar[1] = PreTar[0];
+									if (iter.hasNext() == true) {
+										OnStageInsn[0] = iter.next();
+										InsnCount++;
+									} else {
+										OnStageInsn[0] = nop;
+									}
+									if (OnStageInsn[0].dstReg != -2) {
+										insnaccess = ic.access(true,OnStageInsn[0].pc);
+									} else {
+										insnaccess = 0;
+									}
+									continue;
+									
+								}
+
+							}
+
+						}
+					}
+					// if prediction is correct
+					if ((OnStageInsn[2].dstReg != -2) && (((OnStageInsn[2].branchDirection == Direction.Taken)
+							&& (OnStageInsn[2].branchTarget == PreTar[2]))
+							|| ((OnStageInsn[2].branchDirection != Direction.Taken)
+									&& (PreTar[2] == OnStageInsn[2].fallthroughPC())))) {
+						if (TrainTrue == 0) {
+							bp.train(OnStageInsn[2].pc, PreTar[2], OnStageInsn[2].branchDirection);
+							TrainTrue++;
+							// System.out.println(Train++);
+
 						}
 						continue;
 					}
-					// if D isn't a nop
-					if (OnStageInsn[1].dstReg != -2) {
+					// if prediction is incorrect
+					else if ((OnStageInsn[2].dstReg != -2) && (((OnStageInsn[2].branchDirection == Direction.Taken)
+							&& (OnStageInsn[2].branchTarget != PreTar[2]))
+							|| ((OnStageInsn[2].branchDirection != Direction.Taken)
+									&& (PreTar[2] != OnStageInsn[2].fallthroughPC())))) {
+						// 1st
+						if (FlushTrue == 0) {
 
-						// M&D load to use/ load to store
+							if (OnStageInsn[2].branchDirection == Direction.Taken) {
+								bp.train(OnStageInsn[2].pc, OnStageInsn[2].branchTarget,
+										OnStageInsn[2].branchDirection);
+								// System.out.println(Train++);
 
-						if (OnStageInsn[3].mem == MemoryOp.Load) {
+							} else {
+								bp.train(OnStageInsn[2].pc, OnStageInsn[2].fallthroughPC(),
+										OnStageInsn[2].branchDirection);
 
-							if (OnStageInsn[1].mem == MemoryOp.Store
-									&& OnStageInsn[1].srcReg2 == OnStageInsn[3].dstReg) {
-								continue;
 							}
 
-							else if ((OnStageInsn[1].mem != MemoryOp.Store)
-									&& (OnStageInsn[1].srcReg2 == OnStageInsn[3].dstReg
-											|| OnStageInsn[1].srcReg1 == OnStageInsn[3].dstReg)) {
-								continue;
-							}
+							if (OnStageInsn[0].dstReg != -2) {
+								iter.putBack(OnStageInsn[0]);
+			                     ic.delete(OnStageInsn[0].pc);
 
-						}
-						// no dependence
-						else {
-							OnStageInsn[2] = OnStageInsn[1];
-							PreTar[2] = PreTar[1];
-							OnStageInsn[1] = OnStageInsn[0];
-							PreTar[1] = PreTar[0];
+								OnStageInsn[0] = nop;
+								PreTar[0] = 0;
+
+								InsnCount--;
+
+							}
+							if (OnStageInsn[1].dstReg != -2) {
+								iter.putBack(OnStageInsn[1]);
+			                     ic.delete(OnStageInsn[1].pc);
+
+								OnStageInsn[1] = nop;
+								PreTar[1] = 0;
+
+								InsnCount--;
+
+							}
+							FlushTrue++;
 							if (iter.hasNext() == true) {
 								OnStageInsn[0] = iter.next();
-								InsnCount++;
 							} else {
 								OnStageInsn[0] = nop;
 							}
+							if (OnStageInsn[0].dstReg != -2) {
+								insnaccess = ic.access(true,OnStageInsn[0].pc);
+							} else {
+								insnaccess = 0;
+							}
 							continue;
+						}
+						// 2st
+						else if (FlushTrue == 1) {
+							if (OnStageInsn[0].pc != -2 && fetchlatency != insnaccess) {
+								fetchlatency++;
+								continue;
+							} else {
+								fetchlatency = 0;
+								OnStageInsn[1] = OnStageInsn[0];
+								PreTar[1] = PreTar[0];
+								if (iter.hasNext() == true) {
+									OnStageInsn[0] = iter.next();
+								} else {
+									OnStageInsn[0] = nop;
+								}
 
+								FlushTrue++;
+								if (OnStageInsn[0].dstReg != -2) {
+									insnaccess = ic.access(true,OnStageInsn[0].pc);
+								} else {
+									insnaccess = 0;
+								}
+								continue;
+							}
+						}
+						// 3+
+						else if (FlushTrue == 2) {
+							continue;
 						}
 
 					}
-
 				}
-				// if prediction is correct
-				if ((OnStageInsn[2].dstReg != -2) && (((OnStageInsn[2].branchDirection == Direction.Taken)
-						&& (OnStageInsn[2].branchTarget == PreTar[2]))
-						|| ((OnStageInsn[2].branchDirection != Direction.Taken)
-								&& (PreTar[2] == OnStageInsn[2].fallthroughPC())))) {
-					if (TrainTrue == 0) {
-						bp.train(OnStageInsn[2].pc, PreTar[2], OnStageInsn[2].branchDirection);
-						TrainTrue++;
-						// System.out.println(Train++);
-
-					}
-					continue;
+				// end of mem latency
+				else {
+					memtrue = 0;
 				}
-				// if prediction is incorrect
-				else if ((OnStageInsn[2].dstReg != -2) && (((OnStageInsn[2].branchDirection == Direction.Taken)
-						&& (OnStageInsn[2].branchTarget != PreTar[2]))
-						|| ((OnStageInsn[2].branchDirection != Direction.Taken)
-								&& (PreTar[2] != OnStageInsn[2].fallthroughPC())))) {
-					// 1st
-					if (FlushTrue == 0) {
-
-						if (OnStageInsn[2].branchDirection == Direction.Taken) {
-							bp.train(OnStageInsn[2].pc, OnStageInsn[2].branchTarget, OnStageInsn[2].branchDirection);
-							// System.out.println(Train++);
-
-						} else {
-							bp.train(OnStageInsn[2].pc, OnStageInsn[2].fallthroughPC(), OnStageInsn[2].branchDirection);
-
-						}
-
-						if (OnStageInsn[0].dstReg != -2) {
-							iter.putBack(OnStageInsn[0]);
-							OnStageInsn[0] = nop;
-							PreTar[0] = 0;
-
-							InsnCount--;
-
-						}
-						if (OnStageInsn[1].dstReg != -2) {
-							iter.putBack(OnStageInsn[1]);
-							OnStageInsn[1] = nop;
-							PreTar[1] = 0;
-
-							InsnCount--;
-
-						}
-						FlushTrue++;
-						if (iter.hasNext() == true) {
-							OnStageInsn[0] = iter.next();
-						} else {
-							OnStageInsn[0] = nop;
-						}
-						continue;
-					}
-					// 2st
-					else if (FlushTrue == 1) {
-						OnStageInsn[1] = OnStageInsn[0];
-						PreTar[1] = PreTar[0];
-						if (iter.hasNext() == true) {
-							OnStageInsn[0] = iter.next();
-						} else {
-							OnStageInsn[0] = nop;
-						}
-
-						FlushTrue++;
-						continue;
-					}
-					// 3+
-					else if (FlushTrue == 2) {
-						continue;
-					}
-
-				}
-			}
-
-			// end of mem latency
-			else if ((OnStageInsn[3].mem == MemoryOp.Load || OnStageInsn[3].mem == MemoryOp.Store)
-					&& memtrue == additionalMemLatency) {
-				memtrue = 0;
 			}
 
 			// if the prediction is correct
@@ -258,6 +340,9 @@ public class InorderPipeline implements IInorderPipeline {
 						OnStageInsn[3] = OnStageInsn[2];
 						OnStageInsn[2] = nop;
 						PreTar[2] = 0;
+						if (OnStageInsn[0].pc != -2) {
+							fetchlatency++;
+						}
 
 						continue;
 
@@ -270,7 +355,9 @@ public class InorderPipeline implements IInorderPipeline {
 						OnStageInsn[3] = OnStageInsn[2];
 						OnStageInsn[2] = nop;
 						PreTar[2] = 0;
-
+						if (OnStageInsn[0].pc != -2) {
+							fetchlatency++;
+						}
 						continue;
 					}
 				}
@@ -298,14 +385,19 @@ public class InorderPipeline implements IInorderPipeline {
 
 				if (OnStageInsn[0].dstReg != -2) {
 					iter.putBack(OnStageInsn[0]);
+                    ic.delete(OnStageInsn[0].pc);
+
 					OnStageInsn[0] = nop;
 					PreTar[0] = 0;
-
 					InsnCount--;
+					//System.out.println("sb");
+
 
 				}
 				if (OnStageInsn[1].dstReg != -2) {
 					iter.putBack(OnStageInsn[1]);
+                    ic.delete(OnStageInsn[1].pc);
+
 					OnStageInsn[1] = nop;
 					PreTar[1] = 0;
 
@@ -314,7 +406,7 @@ public class InorderPipeline implements IInorderPipeline {
 				}
 
 			}
-			// if mem latency >=2
+			// if mem latency >=2,pipeline goes as normal
 			if (FlushTrue == 2) {
 				if (OnStageInsn[2].mem == MemoryOp.Load) {
 
@@ -323,7 +415,9 @@ public class InorderPipeline implements IInorderPipeline {
 						OnStageInsn[3] = OnStageInsn[2];
 						OnStageInsn[2] = nop;
 						PreTar[2] = 0;
-
+						if (OnStageInsn[0].pc != -2) {
+							fetchlatency++;
+						}
 						continue;
 
 					}
@@ -334,6 +428,9 @@ public class InorderPipeline implements IInorderPipeline {
 						OnStageInsn[3] = OnStageInsn[2];
 						OnStageInsn[2] = nop;
 						PreTar[2] = 0;
+						if (OnStageInsn[0].pc != -2) {
+							fetchlatency++;
+						}
 
 						continue;
 					}
@@ -345,11 +442,32 @@ public class InorderPipeline implements IInorderPipeline {
 				OnStageInsn[3] = OnStageInsn[2];
 				OnStageInsn[2] = OnStageInsn[1];
 				PreTar[2] = PreTar[1];
-				OnStageInsn[1] = OnStageInsn[0];
-				PreTar[1] = PreTar[0];
-				OnStageInsn[0] = iter.next();
+				if (OnStageInsn[0].pc != -2 && fetchlatency != insnaccess) {
+					fetchlatency++;
+					OnStageInsn[1] = nop;
+					PreTar[1] = 0;
+					continue;
+				} else {
+					fetchlatency = 0;
+					OnStageInsn[1] = OnStageInsn[0];
+					PreTar[1] = PreTar[0];
+					OnStageInsn[0] = iter.next();
+					if (OnStageInsn[0].dstReg != -2) {
+						insnaccess = ic.access(true,OnStageInsn[0].pc);
+						//int getIndex = (int) OnStageInsn[0].memAddress >> 2;
+						//int index = (int) (Math.pow(2, 3) - 1) & getIndex;
+						//int tag = (int) OnStageInsn[0].memAddress >> 5;
+						//System.out.println(insnaccess);
+						//System.out.println(OnStageInsn[0].memAddress);
 
-				InsnCount++;
+						//System.out.println(index);
+
+					} else {
+						insnaccess = 0;
+					}
+
+					InsnCount++;
+				}
 
 			}
 
@@ -358,9 +476,22 @@ public class InorderPipeline implements IInorderPipeline {
 				OnStageInsn[3] = OnStageInsn[2];
 				OnStageInsn[2] = OnStageInsn[1];
 				PreTar[2] = PreTar[1];
-				OnStageInsn[1] = OnStageInsn[0];
-				PreTar[1] = PreTar[0];
-				OnStageInsn[0] = nop;
+				if (OnStageInsn[0].pc != -2 && fetchlatency != insnaccess) {
+					fetchlatency++;
+					OnStageInsn[1] = nop;
+					PreTar[1] = 0;
+					continue;
+				} else {
+					fetchlatency = 0;
+					OnStageInsn[1] = OnStageInsn[0];
+					PreTar[1] = PreTar[0];
+					OnStageInsn[0] = nop;
+					if (OnStageInsn[0].dstReg != -2) {
+						insnaccess = ic.access(true,OnStageInsn[0].pc);
+					} else {
+						insnaccess = 0;
+					}
+				}
 
 			}
 
