@@ -9,7 +9,7 @@ public class Cache implements ICache {
 	public int[][] dirty;
 	public int indexBits;
 	public int blockOffsetBits;
-	public int ways;
+	public final int ways;
 	public int accessLatency;
 	public int cleanMissLatency;
 	public int dirtyMissLatency;
@@ -66,6 +66,7 @@ public class Cache implements ICache {
 			// if hit, return the latency, update the LRU
 			if (hit == true) {
 				latency = accessLatency;
+
 				for (int l = 0; l < ways; l++) {
 					LRU[index][l] = LRU[index][l] + 1;
 				}
@@ -74,13 +75,14 @@ public class Cache implements ICache {
 			// if not hit, return the latency, update the cache and the LRU
 			else {
 				// find the LRUblock
+				int temp = LRU[index][0];
 				for (int p = 1; p < ways; p++) {
-					int temp = LRU[index][0];
 					if (LRU[index][p] > temp) {
 						temp = LRU[index][p];
 						LRUblock = p;
 					}
 				}
+
 				// if dirty miss,return the latency,update the cache and the LRU
 				if (dirty[index][LRUblock] == 1) {
 					latency = dirtyMissLatency;
@@ -89,6 +91,7 @@ public class Cache implements ICache {
 						LRU[index][l] = LRU[index][l] + 1;
 					}
 					LRU[index][LRUblock] = 0;
+					dirty[index][LRUblock] = 0;
 				}
 				// if clean miss,return the latency,update the cache and the LRU
 				else {
@@ -115,8 +118,8 @@ public class Cache implements ICache {
 			// if miss
 			else {
 				// find the LRU block
+				int temp = LRU[index][0];
 				for (int p = 1; p < ways; p++) {
-					int temp = LRU[index][0];
 					if (LRU[index][p] > temp) {
 						temp = LRU[index][p];
 						LRUblock = p;
@@ -145,26 +148,31 @@ public class Cache implements ICache {
 				}
 			}
 		}
-
 		return latency;
 	}
 
-	@Override
-	public void delete(long address) {
-		//int latency = 0;
-		//int LRUblock = 0;
+	//@Override
+	/*public void delete(long address) {
 
 		// get the index and tag of the address
 		int getIndex = (int) address >> blockOffsetBits;
 		int index = (int) (Math.pow(2, indexBits) - 1) & getIndex;
 		int tag = (int) address >> (indexBits + blockOffsetBits);
-		
-		for(int l=0;l<ways;l++) {
-			if(cache[index][l]==tag) {
-				cache[index][l]=-2;
+
+		for (int l = 0; l < ways; l++) {
+			if (cache[index][l] == tag) {
+				cache[index][l] = -2;
+				int temp = LRU[index][0];
+				for (int p = 1; p < ways; p++) {
+					if (LRU[index][p] > temp) {
+						temp = LRU[index][p];
+					}
+				}
+				LRU[index][l] = temp+1;
 			}
 		}
+		
 
-	}
+	}*/
 
 }

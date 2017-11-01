@@ -5,20 +5,18 @@ import cis501.IDirectionPredictor;
 import java.lang.Math;
 
 public class DirPredBimodal implements IDirectionPredictor {
-    private int indexBits;
+    //private int indexBits;
     private int index;
     public int dimension;
     public int[] counter;
     public DirPredBimodal(int indexBits) {
-        this.indexBits = indexBits;
+        //this.indexBits = indexBits;
         int dimensionsize =(int)Math.pow(2,indexBits);
         this.dimension = dimensionsize;
         this.counter = new int[dimensionsize];
     }
     
-    //declare counter array
-   // public int dimension = (int)Math.pow(2,indexBits);
-    //public int[] counter = new int[dimension];
+    
     
         
     @Override

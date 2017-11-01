@@ -23,7 +23,7 @@ public class TraceRunner {
         }
 
         ITraceAnalyzer ta = new TraceAnalyzer();
-        InsnIterator uiter = new InsnIterator(args[0], insnLimit);
+        InsnIterator uiter = new InsnIterator("/Users/koutsutomushiba/Desktop/cis501-master/path/streamcluster-10M-v2.trace.gz", -1);
         ta.run(uiter);
         System.out.println("Avg insn size is: " + ta.avgInsnSize());
         System.out.println("Insn bw increase sans thumb: " + ta.insnBandwidthIncreaseWithoutThumb());
